@@ -1,5 +1,4 @@
 from typing import cast
-
 import streamlit as st
 from openai import OpenAI
 from openai.types.chat import ChatCompletionMessageParam
