@@ -11,3 +11,7 @@ wheels/
 
 # environment variables
 .env
+
+# vscode files
+.vscode
+/pyrightconfig.json
