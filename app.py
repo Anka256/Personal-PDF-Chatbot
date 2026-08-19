@@ -1,5 +1,13 @@
+from typing import cast
+
 import streamlit as st
+from openai import OpenAI
+from openai.types.chat import ChatCompletionMessageParam
 from rag import load_pdf, split_documents, create_vector_store
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
 
 st.html(
     """
@@ -21,15 +29,52 @@ with st.columns([3, 2, 3])[1]:
         type="pdf",
     )
 
-
-if users_file is not None:
-    with st.spinner("PDF loading..."):
+if users_file is not None and "vector_store" not in st.session_state:
+    with st.spinner("PDF işleniyor..."):
         docs = load_pdf(users_file)
         chunks = split_documents(docs)
-        vector_store = create_vector_store(chunks)
-        results = vector_store.similarity_search("Skillset", k=3)
+        st.session_state.vector_store = create_vector_store(chunks)
 
-    st.success(f"PDF loaded successfully! Total page:{len(docs)}")
 
-    with st.expander("Results"):
-        st.write(results)
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
+if "openai_model" not in st.session_state:
+    st.session_state["openai_model"] = "gpt-3.5-turbo"
+
+if "messages" not in st.session_state:
+    st.session_state.messages = []
+
+for message in st.session_state.messages:
+    with st.chat_message(message["role"]):
+        st.markdown(message["content"])
+
+if prompt := st.chat_input("What is up?"):
+    st.session_state.messages.append({"role": "user", "content": prompt})
+    with st.chat_message("user"):
+        st.markdown(prompt)
+
+    with st.chat_message("assistant"):
+        context = ""
+        if "vector_store" in st.session_state:
+            top_chunks = st.session_state.vector_store.similarity_search(prompt, k=3)
+            context = "\n\n".join(doc.page_content for doc in top_chunks)
+
+        system_msg = {
+            "role": "system",
+            "content": f"Answer the question using the PDF content below:\n\n{context}",
+        }
+
+        stream = client.chat.completions.create(
+            model=st.session_state["openai_model"],
+            messages=cast(
+                list[ChatCompletionMessageParam],
+                [system_msg]
+                + [
+                    {"role": m["role"], "content": m["content"]}
+                    for m in st.session_state.messages
+                ],
+            ),
+            stream=True,
+        )
+        response = st.write_stream(stream)
+    st.session_state.messages.append({"role": "assistant", "content": response})
